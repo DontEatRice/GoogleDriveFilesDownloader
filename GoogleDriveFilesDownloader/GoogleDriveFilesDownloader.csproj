@@ -7,4 +7,9 @@
         <Nullable>enable</Nullable>
     </PropertyGroup>
 
+    <ItemGroup>
+      <PackageReference Include="Google.Apis.Drive.v3" Version="1.68.0.3508" />
+      <PackageReference Include="Spectre.Console.Cli" Version="0.49.1" />
+    </ItemGroup>
+
 </Project>
