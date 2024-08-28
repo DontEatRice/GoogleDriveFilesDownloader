@@ -19,7 +19,7 @@ internal sealed class FilesDownloadCommand : Command<FilesDownloadCommand.Settin
         public string? Destination { get; init; }
         [Description("Sets the degree of parallelism when downloading files. Setting it over 2 * processor cores will have no affect")]
         [CommandOption("-p|--parallelLevel")]
-        [DefaultValue(2)]
+        [DefaultValue(1)]
         public int ParallelismLevel { get; init; }
 
         [Description("Google Cloud Api Key with Google Drive API enabled")]
@@ -48,13 +48,14 @@ internal sealed class FilesDownloadCommand : Command<FilesDownloadCommand.Settin
         {
             destinationDir = Environment.CurrentDirectory;
         }
-        
+
+        var progressBarColumn = new ProgressBarColumn();
         var progress = AnsiConsole.Progress()
             .HideCompleted(false)
             .AutoRefresh(true)
             .AutoClear(false)
             .Columns([
-                new ProgressBarColumn(), // Progress bar
+                progressBarColumn, // Progress bar
                 new PercentageColumn(), // Percentage
                 new TransferSpeedColumn(),
                 new RemainingTimeColumn(),
@@ -65,12 +66,19 @@ internal sealed class FilesDownloadCommand : Command<FilesDownloadCommand.Settin
 
         var stopWatch = Stopwatch.StartNew();
 
-        var downloadedCount = 0;
-        var downloader = new Downloader(settings.ApiKey, destinationDir);
-        foreach (var chunk in fileIds.Chunk(settings.ParallelismLevel))
+        var degreeOfParallelism = settings.ParallelismLevel;
+        if (degreeOfParallelism > 2 * Environment.ProcessorCount)
         {
-            var fileInfosResults = chunk.Select(fileId => downloader.GetFileInfo(fileId)).AsParallel().ToArray();
-            var fileInfos = new List<File>();
+            degreeOfParallelism = 2 * Environment.ProcessorCount;
+        }
+        var downloadedCount = 0;
+
+        var fileInfos = new List<File>();
+        using (var downloader = new Downloader(settings.ApiKey))
+        {
+            // ReSharper disable once AccessToDisposedClosure
+            var fileInfosResults = fileIds.Select(fileId => downloader.GetFileInfo(fileId)).AsParallel()
+                .ToArray();
             foreach (var fileInfoResult in fileInfosResults)
             {
                 if (!fileInfoResult.IsOk)
@@ -80,22 +88,34 @@ internal sealed class FilesDownloadCommand : Command<FilesDownloadCommand.Settin
                 }
                 fileInfos.Add(fileInfoResult.Value);
             }
+        }
 
-            progress.Start(ctx =>
+        progress.Start(ctx =>
+        {
+            var tasksForFiles = new List<KeyValuePair<ProgressTask, File>>(fileInfos.Count);
+            foreach (var fileInfo in fileInfos)
             {
-                Parallel.ForEach(fileInfos, fileInfo =>
+                var descFileName = fileInfo.Name.Trim();
+                if (descFileName.Length > 80)
                 {
-                    var descFileName = fileInfo.Name.Trim();
-                    if (descFileName.Length > 80)
-                    {
-                        descFileName = descFileName.PadLeft(80) + "...";
-                    }
-                    var task = ctx.AddTask(Markup.Escape(descFileName), autoStart: false, maxValue: fileInfo.Size ?? 0);
-                    downloader.Download(fileInfo, downloadProgress =>
+                    descFileName = descFileName[..80] + "...";
+                }
+                var task = ctx.AddTask(Markup.Escape(descFileName), autoStart: false, maxValue: fileInfo.Size ?? 0);
+                task.IsIndeterminate();
+                tasksForFiles.Add(KeyValuePair.Create(task, fileInfo));
+            }
+
+            Parallel.ForEach(tasksForFiles, new ParallelOptions { MaxDegreeOfParallelism = degreeOfParallelism },
+                taskForFile =>
+                {
+                    var (task, fileInfo) = taskForFile;
+                    using var downloader = new Downloader(settings.ApiKey);
+                    downloader.Download(fileInfo, destinationDir ,downloadProgress =>
                     {
                         if (!task.IsStarted && downloadProgress.Status == DownloadStatus.Downloading)
                         {
                             task.StartTask();
+                            task.IsIndeterminate(false);
                         }
                         switch (downloadProgress.Status)
                         {
@@ -119,9 +139,8 @@ internal sealed class FilesDownloadCommand : Command<FilesDownloadCommand.Settin
                         }
                     });
                 });
-            });
-        }
-
+        });
+        
         stopWatch.Stop();
         AnsiConsole.Markup(
             "Downloaded [green]{0}[/] files in [yellow]{1}[/] hours [yellow]{2}[/] minutes [yellow]{3}[/] seconds",

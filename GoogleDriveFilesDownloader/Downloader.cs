@@ -14,12 +14,10 @@ public sealed class Downloader : IDisposable
         {"application/vnd.google-apps.file", new GoogleMimeTypeInfo(false, "Google Drive file")}
     };
     
-    private readonly string _destination;
     private readonly DriveService _driveService;
 
-    public Downloader(string apiKey, string destination)
+    public Downloader(string apiKey)
     {
-        _destination = destination;
         _driveService = new DriveService(new BaseClientService.Initializer
         {
             ApplicationName = "GoogleDriveFilesDownloader",
@@ -57,7 +55,7 @@ public sealed class Downloader : IDisposable
         }
     }
 
-    public void Download(Google.Apis.Drive.v3.Data.File fileInfo, Action<IDownloadProgress> progressCallback)
+    public void Download(Google.Apis.Drive.v3.Data.File fileInfo, string destination, Action<IDownloadProgress> progressCallback)
     {
         var request = _driveService.Files.Get(fileInfo.Id);
 
@@ -70,7 +68,7 @@ public sealed class Downloader : IDisposable
         request.AcknowledgeAbuse = true;
         request.Fields = string.Empty;
 
-        var fileStream = File.OpenWrite(Path.Join(_destination, fileName));
+        var fileStream = File.OpenWrite(Path.Join(destination, fileName));
 
         request.MediaDownloader.ProgressChanged += progressCallback;
         // request.MediaDownloader.
