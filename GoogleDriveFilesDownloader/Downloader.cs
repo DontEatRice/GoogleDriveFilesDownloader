@@ -25,14 +25,14 @@ public sealed class Downloader : IDisposable
         });
     }
 
-    public Result<Google.Apis.Drive.v3.Data.File> GetFileInfo(string fileId)
+    public async Task<Result<Google.Apis.Drive.v3.Data.File>> GetFileInfoAsync(string fileId)
     {
         var request = _driveService.Files.Get(fileId);
 
         request.Fields = "fileExtension,size,mimeType,name,capabilities,id";
         try
         {
-            var fileInfo = request.Execute();
+            var fileInfo = await request.ExecuteAsync();
 
             if (fileInfo.Capabilities.CanDownload is false)
             {
@@ -55,7 +55,7 @@ public sealed class Downloader : IDisposable
         }
     }
 
-    public void Download(Google.Apis.Drive.v3.Data.File fileInfo, string destination, Action<IDownloadProgress> progressCallback)
+    public Task DownloadAsync(Google.Apis.Drive.v3.Data.File fileInfo, string destination, Action<IDownloadProgress> progressCallback)
     {
         var request = _driveService.Files.Get(fileInfo.Id);
 
@@ -71,8 +71,7 @@ public sealed class Downloader : IDisposable
         var fileStream = File.OpenWrite(Path.Join(destination, fileName));
 
         request.MediaDownloader.ProgressChanged += progressCallback;
-        // request.MediaDownloader.
-        request.Download(fileStream);
+        return request.DownloadAsync(fileStream);
     }
 
     public void Dispose()

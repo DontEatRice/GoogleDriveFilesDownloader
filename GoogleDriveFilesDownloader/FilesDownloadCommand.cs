@@ -7,7 +7,7 @@ using File = Google.Apis.Drive.v3.Data.File;
 
 namespace GoogleDriveFilesDownloader;
 
-internal sealed class FilesDownloadCommand : Command<FilesDownloadCommand.Settings>
+internal sealed class FilesDownloadCommand : AsyncCommand<FilesDownloadCommand.Settings>
 {
     public sealed class Settings : CommandSettings
     {
@@ -27,7 +27,7 @@ internal sealed class FilesDownloadCommand : Command<FilesDownloadCommand.Settin
         public string ApiKey { get; init; } = null!;
     }
 
-    public override int Execute(CommandContext context, Settings settings)
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
     {
         var fileIds = SourceParser.GetIdsFromSource(settings.Source);
 
@@ -77,8 +77,7 @@ internal sealed class FilesDownloadCommand : Command<FilesDownloadCommand.Settin
         using (var downloader = new Downloader(settings.ApiKey))
         {
             // ReSharper disable once AccessToDisposedClosure
-            var fileInfosResults = fileIds.Select(fileId => downloader.GetFileInfo(fileId)).AsParallel()
-                .ToArray();
+            var fileInfosResults = await Task.WhenAll(fileIds.Select(fileId => downloader.GetFileInfoAsync(fileId)));
             foreach (var fileInfoResult in fileInfosResults)
             {
                 if (!fileInfoResult.IsOk)
@@ -90,7 +89,7 @@ internal sealed class FilesDownloadCommand : Command<FilesDownloadCommand.Settin
             }
         }
 
-        progress.Start(ctx =>
+        await progress.StartAsync(async ctx =>
         {
             var tasksForFiles = new List<KeyValuePair<ProgressTask, File>>(fileInfos.Count);
             foreach (var fileInfo in fileInfos)
@@ -105,12 +104,12 @@ internal sealed class FilesDownloadCommand : Command<FilesDownloadCommand.Settin
                 tasksForFiles.Add(KeyValuePair.Create(task, fileInfo));
             }
 
-            Parallel.ForEach(tasksForFiles, new ParallelOptions { MaxDegreeOfParallelism = degreeOfParallelism },
-                taskForFile =>
+            await Parallel.ForEachAsync(tasksForFiles, new ParallelOptions { MaxDegreeOfParallelism = degreeOfParallelism },
+                async (taskForFile, ct) =>
                 {
                     var (task, fileInfo) = taskForFile;
                     using var downloader = new Downloader(settings.ApiKey);
-                    downloader.Download(fileInfo, destinationDir ,downloadProgress =>
+                    await downloader.DownloadAsync(fileInfo, destinationDir ,downloadProgress =>
                     {
                         if (!task.IsStarted && downloadProgress.Status == DownloadStatus.Downloading)
                         {
