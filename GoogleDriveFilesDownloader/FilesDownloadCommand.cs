@@ -49,19 +49,22 @@ internal sealed class FilesDownloadCommand : AsyncCommand<FilesDownloadCommand.S
             destinationDir = Environment.CurrentDirectory;
         }
 
-        var progressBarColumn = new ProgressBarColumn();
+        var taskDescriptionColumn = new TaskDescriptionColumn
+        {
+            Alignment = Justify.Left
+        };
         var progress = AnsiConsole.Progress()
             .HideCompleted(false)
             .AutoRefresh(true)
             .AutoClear(false)
             .Columns([
-                progressBarColumn, // Progress bar
+                new ProgressBarColumn(), // Progress bar
                 new PercentageColumn(), // Percentage
                 new TransferSpeedColumn(),
                 new RemainingTimeColumn(),
                 new SpinnerColumn(), // Spinner,
                 new DownloadedColumn(),
-                new TaskDescriptionColumn() // Task description
+                taskDescriptionColumn // Task description
             ]);
 
         var stopWatch = Stopwatch.StartNew();
