@@ -71,6 +71,7 @@ public sealed class Downloader : IDisposable
         var fileStream = File.OpenWrite(Path.Join(destination, fileName));
 
         request.MediaDownloader.ProgressChanged += progressCallback;
+        request.MediaDownloader.ChunkSize = 0x100000 * 4;
         return request.DownloadAsync(fileStream);
     }
 
