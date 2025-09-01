@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Web;
 using Spectre.Console;
 
 namespace BuzzHeavierDownloader;
@@ -9,7 +10,7 @@ public class Downloader : IDisposable
     private readonly string _destination;
     private readonly int _bufferSize;
 
-    public Downloader(string destination, int bufferSize = 1024 * 1024)
+    public Downloader(string destination, int bufferSize)
     {
         _destination = destination;
         _bufferSize = bufferSize;
@@ -24,17 +25,17 @@ public class Downloader : IDisposable
         var request = new HttpRequestMessage(HttpMethod.Get, new Uri(downloadLink));
         using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
-        var contentlength = response.Content.Headers.ContentLength ?? 0;
+        var contentLength = response.Content.Headers.ContentLength ?? 0;
         var fileName = $"{id}.mkv";
         if (response.Content.Headers.TryGetValues("Content-Disposition", out var headerValues))
         {
             var value = headerValues.FirstOrDefault()?.Replace("attachment; filename*=UTF-8''", string.Empty);
             if (!string.IsNullOrWhiteSpace(value))
             {
-                fileName = value;
+                fileName = HttpUtility.UrlDecode(value);
             }
         }
-        var task = context.AddTask(Markup.Escape(fileName), false, contentlength);
+        var task = context.AddTask(Markup.Escape(fileName), false, contentLength);
         task.IsIndeterminate();
         await using var destFileStream = new FileStream(Path.Join(_destination, fileName), FileMode.Create);
         await using var stream = await response.Content.ReadAsStreamAsync();
@@ -73,7 +74,7 @@ public class Downloader : IDisposable
 
     private async Task<string> GetDownloadLinkAsync(string id)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("https://buzzheavier.com/" + id + "/download"));
+        using var request = new HttpRequestMessage(HttpMethod.Get,  id + "/download");
         request.Headers.Add("Hx-Current-Url", "https://buzzheavier.com/" + id);
         request.Headers.Add("Hx-Request", "true");
         request.Headers.Add("Dnt", "1");
@@ -90,5 +91,6 @@ public class Downloader : IDisposable
     public void Dispose()
     {
         _client.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

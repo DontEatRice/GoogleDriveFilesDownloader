@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Diagnostics;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -23,6 +24,12 @@ internal sealed class FilesDownloadCommand : AsyncCommand<FilesDownloadCommand.S
         [CommandOption("-p|--parallelLevel")]
         [DefaultValue(4)]
         public int ParallelismLevel { get; init; }
+
+        [Description(
+            "Sets buffer size when downloading files.")]
+        [CommandOption("-b|--bufferSize")]
+        [DefaultValue(1024 * 512)]
+        public int BufferSize { get; init; }
     }
 
     public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
@@ -31,7 +38,7 @@ internal sealed class FilesDownloadCommand : AsyncCommand<FilesDownloadCommand.S
         {
             throw new FileNotFoundException("Source file not found", settings.Source);
         }
-        
+
         if (settings.Destination is not null && !Directory.Exists(settings.Destination))
         {
             throw new DirectoryNotFoundException("Destination directory not found");
@@ -40,8 +47,8 @@ internal sealed class FilesDownloadCommand : AsyncCommand<FilesDownloadCommand.S
         var ids = await File.ReadAllLinesAsync(settings.Source);
 
         var dest = settings.Destination ?? Environment.CurrentDirectory;
-        using var downloader = new Downloader(dest);
-        
+        using var downloader = new Downloader(dest, settings.BufferSize);
+
         var taskDescriptionColumn = new TaskDescriptionColumn
         {
             Alignment = Justify.Left
@@ -62,12 +69,34 @@ internal sealed class FilesDownloadCommand : AsyncCommand<FilesDownloadCommand.S
 
         await progress.StartAsync(async ctx =>
         {
-            await Parallel.ForEachAsync(ids, new ParallelOptions {MaxDegreeOfParallelism = settings.ParallelismLevel},async (s, token) =>
-            {
-                await downloader.DownloadAsync(s, ctx);
-            });
+            var stopwatch = Stopwatch.StartNew();
+            await Parallel.ForEachAsync(ids, new ParallelOptions { MaxDegreeOfParallelism = settings.ParallelismLevel },
+                async (s, token) =>
+                {
+                    try
+                    {
+                        if (!string.IsNullOrWhiteSpace(s))
+                        {
+                            await downloader.DownloadAsync(s, ctx);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AnsiConsole.Markup("[red]Error occured while downloading {0}[/]", s);
+                        AnsiConsole.WriteException(ex);
+                    }
+                });
+            stopwatch.Stop();
+
+            AnsiConsole.Markup(
+                "Downloaded [green]{0}[/] files in [yellow]{1}[/] hours [yellow]{2}[/] minutes [yellow]{3}[/] seconds",
+                ids.Length,
+                stopwatch.Elapsed.Hours,
+                stopwatch.Elapsed.Minutes,
+                stopwatch.Elapsed.Seconds
+            );
         });
-        
+
         return 0;
     }
 }
